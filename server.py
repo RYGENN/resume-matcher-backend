@@ -22,6 +22,7 @@ import spacy
     
 import ssl
 import certifi
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 nltk.download('punkt')
 nltk.download('stopwords')
@@ -63,7 +64,8 @@ db = mongo_client[MONGO_DB]
 collection = db[MONGO_COLLECTION]
 
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": ["http://localhost:5173"], "methods": ["GET", "POST"], "allow_headers": ["Content-Type"]}})
+CORS(app, resources={r"/*": {"origins": ["http://localhost:5173","https://agreeable-meadow-00be2840f.2.azurestaticapps.net"], "methods": ["GET", "POST"], "allow_headers": ["Content-Type"]}})
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 
 
 # API routes
@@ -378,7 +380,7 @@ def clear_all_data():
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
+    app.run(host='0.0.0.0', port=port, ssl_context=None)
 
 
 
@@ -409,156 +411,6 @@ if __name__ == '__main__':
 
 
 
-
-
-
-
-
-
-
-# older version 
-
-# from flask import Flask, request, jsonify
-# from flask_cors import CORS
-# from azure.storage.blob import BlobServiceClient
-# from pymongo import MongoClient
-# from dotenv import load_dotenv
-# import os
-# import fitz  # PyMuPDF
-# import uuid
-# import nltk
-# import re
-# from nltk.corpus import stopwords
-# from sklearn.feature_extraction.text import TfidfVectorizer
-# from sklearn.metrics.pairwise import cosine_similarity
-
-
-# load_dotenv()
-
-# AZURE_CONNECTION_STRING = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
-# BLOB_CONTAINER_NAME = os.getenv("AZURE_CONTAINER_NAME")
-# MONGO_URI = os.getenv("MONGO_URI")
-# MONGO_DB = os.getenv("MONGO_DB_NAME")
-# MONGO_COLLECTION = os.getenv("MONGO_COLLECTION_NAME")
-
-# # Setting up clients
-# blob_service_client = BlobServiceClient.from_connection_string(AZURE_CONNECTION_STRING)
-# container_client = blob_service_client.get_container_client(BLOB_CONTAINER_NAME)
-# mongo_client = MongoClient(MONGO_URI)
-# db = mongo_client[MONGO_DB]
-# collection = db[MONGO_COLLECTION]
-
-# app = Flask(__name__)
-# CORS(app, resources={r"/*": {"origins": ["http://localhost:5173"], "methods": ["GET", "POST"], "allow_headers": ["Content-Type"]}})
-
-
-# # API routes
-# @app.route('/')
-# def hello_world(): 
-#     return 'Hello, World!'
-
-# nltk.download('stopwords')
-# stop_words = set(stopwords.words('english'))
-
-# def clean_text(text):
-#     text = text.lower()
-#     text = re.sub(r'[^a-z0-9\s]', ' ', text)
-#     words = text.split()
-#     words = [word for word in words if word not in stop_words]
-#     return " ".join(words)
-
-# @app.route("/upload_job_description", methods=['POST'])
-# def upload_job_description():
-#     file = request.files.get('pdf')
-#     if not file:
-#         return jsonify({"error": "No file uploaded"}), 400
-
-#     if file and file.filename.endswith('.pdf'):
-#         unique_name = f"jd_{uuid.uuid4()}_{file.filename}"
-#         blob_client = container_client.get_blob_client(unique_name)
-#         blob_client.upload_blob(file, overwrite=True)
-#         blob_url = blob_client.url
-
-#         file.seek(0)
-#         doc = fitz.open(stream=file.read(), filetype="pdf")
-#         text = "".join([page.get_text() for page in doc])
-
-#         collection.insert_one({
-#             "type": "job_description",
-#             "filename": file.filename,
-#             "blob_url": blob_url,
-#             "text_excerpt": text[:1000]
-#         })
-
-#         return jsonify({"message": "Job description uploaded", "url": blob_url}), 200
-
-#     return jsonify({"error": "Invalid file type"}), 400
-
-# @app.route("/upload_candidate_resumes", methods=["POST"])
-# def upload_to_blob_and_mongo():
-#     files = request.files.getlist("pdfs")
-#     if not files:
-#         return jsonify({"error": "No files uploaded"}), 400
-
-#     uploaded_files = []
-
-#     for file in files:
-#         if file.filename.endswith(".pdf"):
-#             unique_name = f"{uuid.uuid4()}_{file.filename}"
-#             blob_client = container_client.get_blob_client(unique_name)
-#             blob_client.upload_blob(file, overwrite=True)
-#             blob_url = blob_client.url
-
-#             file.seek(0)
-#             doc = fitz.open(stream=file.read(), filetype="pdf")
-#             text = "".join([page.get_text() for page in doc])
-
-#             collection.insert_one({
-#                 "type": "resume",
-#                 "filename": file.filename,
-#                 "blob_url": blob_url,
-#                 "text_excerpt": text[:1000]
-#             })
-
-#             uploaded_files.append({"filename": file.filename, "url": blob_url})
-
-#     return jsonify({"message": f"{len(uploaded_files)} files uploaded", "files": uploaded_files}), 200
-
-# @app.route("/calculate_ranks", methods=["GET"])
-# def calculate_resume_rank():
-#     try:
-#         jd_doc = collection.find_one({"type": "job_description"}, sort=[("_id", -1)])
-#         if not jd_doc:
-#             return jsonify({"error": "No job description found in DB"}), 404
-
-#         resumes = list(collection.find({"type": "resume"}))
-#         if not resumes:
-#             return jsonify({"error": "No resumes found in DB"}), 404
-
-#         cleaned_job_desc = clean_text(jd_doc['text_excerpt'])
-#         cleaned_resumes = [(res["filename"], clean_text(res["text_excerpt"])) for res in resumes]
-
-#         documents = [cleaned_job_desc] + [txt for _, txt in cleaned_resumes]
-#         vectorizer = TfidfVectorizer()
-#         tfidf_matrix = vectorizer.fit_transform(documents)
-
-#         job_desc_vector = tfidf_matrix[0]
-#         resume_vectors = tfidf_matrix[1:]
-#         similarity_scores = cosine_similarity(resume_vectors, job_desc_vector)
-#         scores = similarity_scores.flatten()
-
-#         results = [
-#             {"filename": fname, "score": float(score)}
-#             for (fname, _), score in zip(cleaned_resumes, scores)
-#         ]
-
-#         return jsonify(results), 200
-
-#     except Exception as e:
-#         return jsonify({"error": "Internal server error", "details": str(e)}), 500
-
-# if __name__ == '__main__':
-#     app.run(debug=True)
 
 
 
