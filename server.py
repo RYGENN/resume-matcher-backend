@@ -45,15 +45,49 @@ from nltk.stem import WordNetLemmatizer
 
 load_dotenv()
 
+# Environment variables with fallbacks and error checking
 AZURE_CONNECTION_STRING = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
-BLOB_CONTAINER_NAME = os.getenv("AZURE_CONTAINER_NAME")
+BLOB_CONTAINER_NAME = os.getenv("AZURE_CONTAINER_NAME", "resumes")  # Default fallback
 MONGO_URI = os.getenv("MONGO_URI")
-MONGO_DB = os.getenv("MONGO_DB_NAME")
-MONGO_COLLECTION = os.getenv("MONGO_COLLECTION_NAME")
+MONGO_DB = os.getenv("MONGO_DB_NAME", "resumesData")  # Default fallback
+MONGO_COLLECTION = os.getenv("MONGO_COLLECTION_NAME", "Upload")  # Default fallback
 
-# Setting up clients
-blob_service_client = BlobServiceClient.from_connection_string(AZURE_CONNECTION_STRING)
-container_client = blob_service_client.get_container_client(BLOB_CONTAINER_NAME)
+# Debug environment variables
+print(f"AZURE_CONNECTION_STRING: {'SET' if AZURE_CONNECTION_STRING else 'NOT SET'}")
+print(f"BLOB_CONTAINER_NAME: {BLOB_CONTAINER_NAME}")
+print(f"MONGO_URI: {'SET' if MONGO_URI else 'NOT SET'}")
+print(f"MONGO_DB: {MONGO_DB}")
+print(f"MONGO_COLLECTION: {MONGO_COLLECTION}")
+
+# Validate required environment variables
+if not AZURE_CONNECTION_STRING:
+    raise ValueError("AZURE_STORAGE_CONNECTION_STRING environment variable is not set")
+if not BLOB_CONTAINER_NAME:
+    raise ValueError("AZURE_CONTAINER_NAME environment variable is not set")
+if not MONGO_URI:
+    raise ValueError("MONGO_URI environment variable is not set")
+
+try:
+    # Setting up clients
+    blob_service_client = BlobServiceClient.from_connection_string(AZURE_CONNECTION_STRING)
+    container_client = blob_service_client.get_container_client(BLOB_CONTAINER_NAME)
+    
+    # Test the container client
+    try:
+        container_client.get_container_properties()
+        print("Successfully connected to Azure Blob Storage")
+    except Exception as container_error:
+        print(f"Container access error: {container_error}")
+        # Try to create the container if it doesn't exist
+        try:
+            container_client.create_container()
+            print("Container created successfully")
+        except Exception as create_error:
+            print(f"Could not create container: {create_error}")
+    
+except Exception as blob_error:
+    print(f"Error setting up blob client: {blob_error}")
+    raise
 mongo_client = MongoClient(
     MONGO_URI,
     tls=True,
